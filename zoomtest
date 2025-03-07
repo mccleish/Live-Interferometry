@@ -1,0 +1,162 @@
+import cv2
+import numpy as np
+from scipy import fftpack
+
+# Screen parameters
+SCREEN_WIDTH = 512
+SCREEN_HEIGHT = 512
+SQUARE_SIZE = 256
+
+# Initialize webcam view position (this controls what part of webcam is shown)
+view_x = 0
+view_y = 0
+
+# Movement speed
+speed = 10
+
+# Create a black canvas
+canvas = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH, 3), dtype=np.uint8)
+
+# Set window position (centered on screen)
+window_x = (SCREEN_WIDTH - SQUARE_SIZE) // 2
+window_y = (SCREEN_HEIGHT - SQUARE_SIZE) // 2
+
+# Capture video from webcam
+cap = cv2.VideoCapture(1)
+
+# Check if webcam is opened successfully
+if not cap.isOpened():
+    print("Error: Could not open webcam")
+    exit()
+
+# Get webcam resolution
+webcam_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+webcam_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+# Initialize view to center of webcam
+view_x = (webcam_width - SQUARE_SIZE) // 2
+view_y = (webcam_height - SQUARE_SIZE) // 2
+
+def compute_strehl(frame):
+    # Convert to grayscale if needed
+    if len(frame.shape) == 3:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = frame
+    
+    # Apply window function to reduce edge effects
+    h, w = gray.shape
+    window = np.hanning(h)[:, np.newaxis] * np.hanning(w)
+    windowed = gray * window
+    
+    # Compute FFT
+    fft = fftpack.fft2(windowed)
+    fft_shifted = fftpack.fftshift(fft)
+    magnitude = np.abs(fft_shifted)
+    
+    # Find the maximum value (peak) in the FFT
+    max_val = np.max(magnitude)
+    max_loc = np.unravel_index(np.argmax(magnitude), magnitude.shape)
+    
+    # The Strehl ratio for interferograms is related to the wavefront error
+    # For a perfect system (no aberration), all energy would be in the central peak
+    
+    # Method 1: Calculate based on encircled energy
+    # Isolate the central peak (a small region around the maximum)
+    center_region_size = min(h, w) // 20  # Adjust this based on your system
+    y_start = max(0, max_loc[0] - center_region_size)
+    y_end = min(h, max_loc[0] + center_region_size)
+    x_start = max(0, max_loc[1] - center_region_size)
+    x_end = min(w, max_loc[1] + center_region_size)
+    
+    # Energy in central peak
+    peak_energy = np.sum(magnitude[y_start:y_end, x_start:x_end])
+    
+    # Total energy in FFT
+    total_energy = np.sum(magnitude)
+    
+    # Calculate Strehl as ratio of energy in central peak to total energy
+    strehl_ratio = peak_energy / total_energy
+    
+    # Ensure it's between 0 and 1
+    strehl_ratio = max(0.0, min(1.0, strehl_ratio))
+    
+    return strehl_ratio, fft_shifted, max_loc
+
+while True:
+    # Clear canvas
+    canvas.fill(0)
+    
+    # Get webcam frame
+    ret, frame = cap.read()
+    if not ret:
+        continue
+    
+    # Ensure view region is within bounds
+    view_x = max(0, min(view_x, webcam_width - SQUARE_SIZE))
+    view_y = max(0, min(view_y, webcam_height - SQUARE_SIZE))
+    
+    # Extract the region based on current view position
+    cropped_frame = frame[view_y:view_y+SQUARE_SIZE, view_x:view_x+SQUARE_SIZE]
+    
+    # Compute Strehl ratio
+    strehl, fft_result, peak_pos = compute_strehl(cropped_frame)
+    
+    # Display FFT in separate window
+    log_fft = np.log(np.abs(fft_result) + 1)
+    normalized_fft = (log_fft / np.max(log_fft) * 255).astype(np.uint8)
+    
+    # Create colored FFT visualization
+    fft_colored = cv2.applyColorMap(normalized_fft, cv2.COLORMAP_JET)
+    
+    # Draw crosshair at peak position
+    peak_x = int(peak_pos[1])
+    peak_y = int(peak_pos[0])
+    cv2.drawMarker(fft_colored, (peak_x, peak_y), (255, 255, 255), cv2.MARKER_CROSS, 10, 2)
+    
+    # Add text with Strehl ratio to FFT window
+    cv2.putText(fft_colored, f"Strehl: {strehl:.4f}", 
+                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
+    # Display FFT in separate window
+    cv2.imshow('FFT Analysis', fft_colored)
+    
+    # Place cropped webcam frame on static window position
+    canvas[window_y:window_y+SQUARE_SIZE, window_x:window_x+SQUARE_SIZE] = cropped_frame
+    
+    # Display Strehl ratio on the main window
+    cv2.putText(canvas, f"Strehl: {strehl:.4f}", 
+                (window_x, window_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+    
+    # Display the main frame
+    cv2.imshow('Movable Webcam View', canvas)
+    
+    # Wait for key press
+    key = cv2.waitKey(1) & 0xFF
+    
+    # Process key presses (move view position instead of window)
+    if key == 27:  # ESC key to exit
+        break
+    elif key == 82 or key == ord('w'):  # Up arrow or 'w'
+        view_y -= speed
+    elif key == 84 or key == ord('s'):  # Down arrow or 's'
+        view_y += speed
+    elif key == 81 or key == ord('a'):  # Left arrow or 'a'
+        view_x -= speed
+    elif key == 83 or key == ord('d'):  # Right arrow or 'd'
+        view_x += speed
+    
+    # Handle wraparound for the view
+    if view_x < 0:
+        view_x = webcam_width - SQUARE_SIZE
+    elif view_x > webcam_width - SQUARE_SIZE:
+        view_x = 0
+    
+    if view_y < 0:
+        view_y = webcam_height - SQUARE_SIZE
+    elif view_y > webcam_height - SQUARE_SIZE:
+        view_y = 0
+
+# Release resources
+cap.release()
+cv2.destroyAllWindows()
