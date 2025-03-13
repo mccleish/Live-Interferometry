@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import scipy
 
 def measure_fringe_distance(img, center=None, angle=None):
+
+    # Step 1: Extract a line profile across the fringes
+    # For diagonal fringes, we need to sample along a line perpendicular to the fringes
     height, width = img.shape
     print('hello')
     # If center not provided, assume it's the middle of the image
@@ -135,16 +138,38 @@ def measure_fringe_distance(img, center=None, angle=None):
     plt.ylabel('Magnitude')
     #magnitude has no physical meaning here
     
-    plt.tight_layout()
-    plt.show()
-    
-    return {
+    results = {
         'peak_detection_spacing': avg_fringe_spacing,
         'fft_spacing': fft_fringe_spacing,
         'sampling_angle_degrees': sampling_angle * 180 / np.pi,
         'peaks': peaks,
         'valleys': valleys
     }
+    plt.subplot(224)  # Bottom half for text
+    plt.axis('off')   # No axes
+    plt.text(0.5, 0.5, 
+        f"MEASUREMENT RESULTS:\n\n"
+        f"Peak detection method: {results['peak_detection_spacing']:.2f} pixels between fringes\n"
+        f"FFT method: {results['fft_spacing']:.2f} pixels between fringes\n" 
+        f"Sampling angle: {results['sampling_angle_degrees']:.2f} degrees",
+        fontsize=14, 
+        ha='center',  # Horizontal alignment
+        va='center',  # Vertical alignment
+        bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=1'))
+
+
+
+    plt.tight_layout()
+    plt.show()
+
+    
+
+    #print(f"Peak detection method: {results['peak_detection_spacing']:.2f} pixels between fringes")
+    #print(f"FFT method: {results['fft_spacing']:.2f} pixels between fringes")
+    #print(f"Sampling line angle: {results['sampling_angle_degrees']:.2f} degrees")
+
+    return results
+
 
 
 def main():
@@ -209,24 +234,5 @@ def main():
         print("No circles detected. Try adjusting the parameters.")
 
     #cv2.imwrite('filtered_interferogram.png', filtered_img)
-
-    # Assuming you already have your filtered circular interferogram image
-    #filtered_img = cv2.imread('filtered_interferogram.png', cv2.IMREAD_GRAYSCALE)
-
-
-    # Step 1: Extract a line profile across the fringes
-    # For diagonal fringes, we need to sample along a line perpendicular to the fringes
-
-
-
-    # Call the function on the filtered image
-    #results = measure_fringe_distance(filtered_img)
-
-
-    #print(f"Peak detection method: {results['peak_detection_spacing']:.2f} pixels between fringes")
-    #print(f"FFT method: {results['fft_spacing']:.2f} pixels between fringes")
-    #print(f"Sampling line angle: {results['sampling_angle_degrees']:.2f} degrees")
-
-
 
 main()
