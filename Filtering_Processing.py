@@ -214,7 +214,8 @@ def measure_fringe_distance(img, center=None, angle=None):
 
 
     plt.tight_layout()
-    plt.show()
+    plt.ion()
+    plt.show(block=False)
 
     
 
@@ -281,7 +282,8 @@ def main():
         plt.subplot(143), plt.imshow(cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)), plt.title('Detected Circle')
         plt.subplot(144), plt.imshow(filtered_img, cmap='gray'), plt.title('Filtered Result')
         plt.tight_layout()
-        plt.show()
+        plt.ion()
+        plt.show(block=False)
         results = measure_fringe_distance(filtered_img)
         analyze_interferogram(results)
         print('fringe measured)')
@@ -290,4 +292,9 @@ def main():
 
     #cv2.imwrite('filtered_interferogram.png', filtered_img)
 
-main()
+    while True:
+        plt.pause(1000)
+
+
+if __name__ == main():
+    main()
