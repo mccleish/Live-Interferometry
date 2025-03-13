@@ -5,6 +5,57 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy
 
+
+def calculate_beam_angle(fringe_spacing_mm, wavelength_nm):
+    """Calculate the angle between interfering beams using fringe spacing and wavelength"""
+    # Convert wavelength from nm to mm
+    wavelength_mm = wavelength_nm / 1_000_000
+    
+    # Use the formula: fringe_spacing = wavelength / (2 * sin(θ/2))
+    # Solving for θ: θ = 2 * arcsin(wavelength / (2 * fringe_spacing))
+    
+    # Check to avoid division by zero or invalid arcsin input
+    if fringe_spacing_mm <= 0 or wavelength_mm / (2 * fringe_spacing_mm) > 1:
+        return None
+        
+    angle_radians = 2 * np.arcsin(wavelength_mm / (2 * fringe_spacing_mm))
+    angle_degrees = np.degrees(angle_radians)
+    
+    return angle_degrees
+
+def analyze_interferogram(results):
+    fringe_spacing_pixels=results['fft_spacing']           # From FFT analysis
+    aperture_diameter_pixels=400      # 2 * radius from circle detection
+    aperture_diameter_real_mm= (4* 25.4)   # 4* 1 inch aperture (Zygo MKII)
+    wavelength_nm=632.8                 # HeNe laser wavelength (Zygo MKII)
+    # Calculate pixel scale
+    pixel_scale_mm = aperture_diameter_real_mm / aperture_diameter_pixels
+    print(f"Pixel scale: {pixel_scale_mm:.6f} mm/pixel")
+    
+    # Convert fringe spacing to physical units
+    fringe_spacing_mm = fringe_spacing_pixels * pixel_scale_mm
+    fringe_spacing_microns = fringe_spacing_mm * 1000
+    print(f"Fringe spacing: {fringe_spacing_microns:.2f} microns ({fringe_spacing_pixels:.2f} pixels)")
+    
+    # Calculate beam angle
+    beam_angle_degrees = calculate_beam_angle(fringe_spacing_mm, wavelength_nm)
+    
+    if beam_angle_degrees is not None:
+        print(f"Calculated beam angle: {beam_angle_degrees:.4f} degrees")
+        
+        # Verify calculation by working backwards
+        theoretical_spacing_mm = wavelength_nm / (1_000_000 * 2 * np.sin(np.radians(beam_angle_degrees/2)))
+        print(f"Verification - theoretical spacing: {theoretical_spacing_mm*1000:.2f} microns")
+    else:
+        print("Could not calculate beam angle - check measurements")
+    
+    #return {
+    #    'pixel_scale_mm': pixel_scale_mm,
+    #    'fringe_spacing_mm': fringe_spacing_mm,
+    #    'fringe_spacing_microns': fringe_spacing_microns,
+    #    'beam_angle_degrees': beam_angle_degrees
+    #}
+    
 def measure_fringe_distance(img, center=None, angle=None):
 
     # Step 1: Extract a line profile across the fringes
@@ -193,7 +244,7 @@ def main():
     dilated_edges = cv2.dilate(edges, kernel, iterations=1)
 
     # Step 4: Use Hough Circle Transform
-    # Parameters need tuning based on your specific images
+    # Parameters need tuning based on specific images
     circles = cv2.HoughCircles(
         dilated_edges,
         cv2.HOUGH_GRADIENT,
@@ -231,7 +282,8 @@ def main():
         plt.subplot(144), plt.imshow(filtered_img, cmap='gray'), plt.title('Filtered Result')
         plt.tight_layout()
         plt.show()
-        measure_fringe_distance(filtered_img)
+        results = measure_fringe_distance(filtered_img)
+        analyze_interferogram(results)
         print('fringe measured)')
     else:
         print("No circles detected. Try adjusting the parameters.")
