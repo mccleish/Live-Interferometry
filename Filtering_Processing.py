@@ -96,14 +96,17 @@ def measure_fringe_distance(img, center=None, angle=None):
     
     # Method 2: Use FFT to find frequency (more robust for regular patterns)
     # Compute the FFT of the intensity profile
+    # Improved FFT analysis section
+    # Compute the FFT of the intensity profile
     fft = np.fft.fft(smoothed_profile - np.mean(smoothed_profile))
     freqs = np.fft.fftfreq(len(smoothed_profile))
-    
-    # Find the dominant frequency (excluding DC component)
+
+    # Find the dominant frequency (excluding DC component and very low frequencies)
     magnitudes = np.abs(fft)
-    magnitudes[0] = 0  # Remove DC component
-    dominant_idx = np.argmax(magnitudes)
-    
+    # Zero out the DC component and very low frequencies (e.g., first few indices)
+    magnitudes[:3] = 0  # Ignore DC and very low frequencies
+    dominant_idx = np.argmax(magnitudes[:len(magnitudes)//2])  # Only look at first half (positive frequencies)
+
     # Calculate fringe spacing from frequency
     if freqs[dominant_idx] != 0:
         fft_fringe_spacing = 1 / abs(freqs[dominant_idx])
