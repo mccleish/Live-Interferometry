@@ -11,4 +11,4 @@ Filtering_Processing is a functional program that analyzes a still interferogram
 
 Features: Outputs the fringe length, displays frequency diagram, filtered image, and other info (pixel scale, calculated beam angle, etc).
 
-Todo: Calculate PV, RMS, Strehl Ratio
+Todo: Calculate PV, RMS, Strehl Ratio, incorporate something from https://opg.optica.org/oe/fulltext.cfm?uri=oe-31-22-36754&id=540901
