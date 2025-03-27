@@ -10,3 +10,5 @@ Replaces zoomtest. No WASD control needed.
 Filtering_Processing is a functional program that analyzes a still interferogram using Hough filtering with opencv, numpy and scipy. This will be integrated with live interferometry soon. Must configure with filepath to image, laser length (default = HeNe laser) and aperture (default = 4 inches like in the Zygo MarkII) as well as webcam output.
 
 Features: Outputs the fringe length, displays frequency diagram, filtered image, and other info (pixel scale, calculated beam angle, etc).
+
+Todo: Calculate PV, RMS, Strehl Ratio
