@@ -1,0 +1,250 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy.signal
+import scipy.ndimage
+
+def calculate_beam_angle(fringe_spacing_mm, wavelength_nm):
+    """Calculate the angle between interfering beams using fringe spacing and wavelength"""
+    # Convert wavelength from nm to mm
+    wavelength_mm = wavelength_nm / 1_000_000
+    
+    # Check to avoid division by zero or invalid arcsin input
+    if fringe_spacing_mm <= 0 or wavelength_mm / (2 * fringe_spacing_mm) > 1:
+        return None
+        
+    angle_radians = 2 * np.arcsin(wavelength_mm / (2 * fringe_spacing_mm))
+    angle_degrees = np.degrees(angle_radians)
+    
+    return angle_degrees
+
+def measure_fringe_distance(img, center=None, angle=None):
+    """Measure fringe distances in the interferogram"""
+    # Preprocessing
+    height, width = img.shape
+    
+    # If center not provided, assume it's the middle of the image
+    if center is None:
+        center = (width // 2, height // 2)
+    
+    # If angle not provided, detect fringe orientation
+    if angle is None:
+        # Use Hough Line Transform to detect the orientation of fringes
+        edges = cv2.Canny(img, 50, 150)
+        lines = cv2.HoughLines(edges, 1, np.pi/180, threshold=100)
+        
+        if lines is not None:
+            # Find the dominant angle from the Hough lines
+            angles = [line[0][1] for line in lines]
+            dominant_angle = np.median(angles)
+            # The sampling line should be perpendicular to the fringes
+            sampling_angle = dominant_angle + np.pi/2
+        else:
+            # Default angle if lines detection fails
+            sampling_angle = np.pi/4  # 45 degrees
+    else:
+        # Convert input angle to radians if needed
+        sampling_angle = angle if angle > 0.1 else angle * np.pi / 180
+    
+    # Calculate vector for the sampling line (perpendicular to fringes)
+    line_length = min(width, height) // 2
+    dx = int(np.cos(sampling_angle) * line_length)
+    dy = int(np.sin(sampling_angle) * line_length)
+    
+    # Define start and end points for the sampling line
+    start_x = center[0] - dx
+    start_y = center[1] - dy
+    end_x = center[0] + dx
+    end_y = center[1] + dy
+    
+    # Ensure points are within image boundaries
+    start_x = max(0, min(width-1, start_x))
+    start_y = max(0, min(height-1, start_y))
+    end_x = max(0, min(width-1, end_x))
+    end_y = max(0, min(height-1, end_y))
+    
+    # Extract intensity profile along the line
+    num_points = int(np.sqrt((end_x - start_x)**2 + (end_y - start_y)**2))
+    x_points = np.linspace(start_x, end_x, num_points).astype(np.int32)
+    y_points = np.linspace(start_y, end_y, num_points).astype(np.int32)
+    intensity_profile = img[y_points, x_points]
+    
+    # Smooth the profile
+    smoothed_profile = scipy.ndimage.gaussian_filter1d(intensity_profile, sigma=2)
+    
+    # Detect peaks and valleys
+    peaks, _ = scipy.signal.find_peaks(smoothed_profile, height=np.mean(smoothed_profile), distance=5)
+    valleys, _ = scipy.signal.find_peaks(-smoothed_profile, height=-np.mean(smoothed_profile), distance=5)
+    
+    # Calculate fringe spacing
+    peak_distances = np.diff(peaks)
+    valley_distances = np.diff(valleys)
+    
+    # Average fringe spacing
+    avg_peak_spacing = np.mean(peak_distances) if len(peak_distances) > 0 else 0
+    avg_valley_spacing = np.mean(valley_distances) if len(valley_distances) > 0 else 0
+    
+    # Compute FFT for frequency analysis
+    fft = np.fft.fft(smoothed_profile - np.mean(smoothed_profile))
+    freqs = np.fft.fftfreq(len(smoothed_profile))
+    
+    # Find dominant frequency
+    magnitudes = np.abs(fft)
+    magnitudes[:3] = 0  # Ignore DC and very low frequencies
+    dominant_idx = np.argmax(magnitudes[:len(magnitudes)//2])
+    
+    # Calculate fringe spacing from frequency
+    fft_fringe_spacing = 1 / abs(freqs[dominant_idx]) if freqs[dominant_idx] != 0 else 0
+    
+    return {
+        'peak_detection_spacing': avg_peak_spacing,
+        'fft_spacing': fft_fringe_spacing,
+        'sampling_angle_degrees': sampling_angle * 180 / np.pi,
+        'peaks': peaks,
+        'valleys': valleys
+    }
+
+def analyze_interferogram(results):
+    """Analyze interferogram results"""
+    # Default parameters for Zygo MKII interferometer
+    fringe_spacing_pixels = results['fft_spacing']
+    aperture_diameter_pixels = 400  # 2 * radius from circle detection
+    aperture_diameter_real_mm = 4 * 25.4  # 4* 1 inch aperture
+    wavelength_nm = 632.8  # HeNe laser wavelength
+    
+    # Calculate pixel scale
+    pixel_scale_mm = aperture_diameter_real_mm / aperture_diameter_pixels
+    fringe_spacing_mm = fringe_spacing_pixels * pixel_scale_mm
+    fringe_spacing_microns = fringe_spacing_mm * 1000
+    
+    print(f"Pixel scale: {pixel_scale_mm:.6f} mm/pixel")
+    print(f"Fringe spacing: {fringe_spacing_microns:.2f} microns ({fringe_spacing_pixels:.2f} pixels)")
+    
+    # Calculate beam angle
+    beam_angle_degrees = calculate_beam_angle(fringe_spacing_mm, wavelength_nm)
+    
+    if beam_angle_degrees is not None:
+        print(f"Calculated beam angle: {beam_angle_degrees:.4f} degrees")
+        
+        # Verify calculation
+        theoretical_spacing_mm = wavelength_nm / (1_000_000 * 2 * np.sin(np.radians(beam_angle_degrees/2)))
+        print(f"Verification - theoretical spacing: {theoretical_spacing_mm*1000:.2f} microns")
+    else:
+        print("Could not calculate beam angle - check measurements")
+
+def detect_circle(img):
+    """Detect circular aperture in the image"""
+    # Apply preprocessing
+    blurred = cv2.GaussianBlur(img, (5, 5), 0)
+    edges = cv2.Canny(blurred, 50, 150)
+    kernel = np.ones((3, 3), np.uint8)
+    dilated_edges = cv2.dilate(edges, kernel, iterations=1)
+    
+    # Detect circles
+    circles = cv2.HoughCircles(
+        dilated_edges,
+        cv2.HOUGH_GRADIENT,
+        dp=1,
+        minDist=5,
+        param1=50,
+        param2=30,
+        minRadius=5,
+        maxRadius=0
+    )
+    
+    # Process and return circle if detected
+    if circles is not None:
+        circles = np.uint16(np.around(circles))
+        center_x, center_y, radius = circles[0, 0]
+        return (center_x, center_y), radius
+    
+    return None, None
+
+def process_frame(frame):
+    """Process a single frame for interferogram analysis"""
+    # Convert to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Detect circular aperture
+    center, radius = detect_circle(gray)
+    
+    if center and radius:
+        # Create mask for the circular aperture
+        mask = np.zeros_like(gray)
+        cv2.circle(mask, center, radius, 255, -1)
+        
+        # Apply mask to filter image
+        filtered_img = cv2.bitwise_and(gray, mask)
+        
+        # Measure fringe distances
+        try:
+            results = measure_fringe_distance(filtered_img, center)
+            analyze_interferogram(results)
+        except Exception as e:
+            print(f"Error analyzing interferogram: {e}")
+        
+        # Visualize results
+        cv2.circle(frame, center, radius, (0, 255, 0), 2)
+        cv2.circle(frame, center, 2, (0, 0, 255), 3)
+    
+    return frame
+
+def main():
+    # Open webcam
+    cap = cv2.VideoCapture(1)  # 0 for default webcam, change if multiple cameras
+    
+    if not cap.isOpened():
+        print("Error: Could not open webcam.")
+        return
+    
+    # Set lower frame rate
+    cap.set(cv2.CAP_PROP_FPS, 10)  # Limit to 10 frames per second
+    
+    # Tracking for processing frequency
+    frame_count = 0
+    process_every_n_frames = 5  # Only process every 5th frame
+    
+    while True:
+        # Capture frame-by-frame
+        ret, frame = cap.read()
+        
+        if not ret:
+            print("Failed to grab frame")
+            break
+        
+        # Only process every n frames
+        frame_count += 1
+        if frame_count % process_every_n_frames == 0:
+            # Process the frame less frequently
+            processed_frame = process_frame(frame)
+            
+            # Display the resulting frame
+            cv2.imshow('Interferogram Analysis', processed_frame)
+        else:
+            # Just display the original frame
+            cv2.imshow('Interferogram Analysis', frame)
+        
+        # Add a delay to reduce processing speed
+        key = cv2.waitKey(200)  # 200 ms delay between frames
+        
+        # Break loop on 'q' key press
+        if key & 0xFF == ord('q'):
+            break
+        
+        # Additional controls
+        elif key & 0xFF == ord('+'):
+            # Increase processing frequency
+            process_every_n_frames = max(1, process_every_n_frames - 1)
+            print(f"Processing every {process_every_n_frames} frames")
+        
+        elif key & 0xFF == ord('-'):
+            # Decrease processing frequency
+            process_every_n_frames += 1
+            print(f"Processing every {process_every_n_frames} frames")
+    
+    # Release resources
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == '__main__':
+    main()
