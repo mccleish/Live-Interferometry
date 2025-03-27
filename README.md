@@ -3,6 +3,9 @@
 Zoomtest:
 broken test program that takes in webcam input (AFN_Cap) and allows output window to be moved to identify and center an interferogram. (Controlled with WASD)
 
+Live_Testing:
+Replaces zoomtest. No WASD control needed.
+
 Placeholder (copilot) code has been written to take the FFT, display it, and calcuate the Strehl ratio (currently displays the wrong value). 
 
 Next steps are to display the FFT phase to the user, show area of the transform used for calculations, and properly calculate Strehl ratio like DFTFringe or to instead use algorithms from (https://opg.optica.org/ao/fulltext.cfm?uri=ao-26-9-1668) for interferogram analysis.
