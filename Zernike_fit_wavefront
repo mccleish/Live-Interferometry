@@ -1,0 +1,81 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from skimage.restoration import unwrap_phase
+from zernike import RZern
+
+# Load grayscale interferogram
+img = cv2.imread('C:\\Users\\cmccl\\OneDrive\\Pictures\\Interferogramtest_2.png', cv2.IMREAD_GRAYSCALE)
+
+# Detect circle
+circles = cv2.HoughCircles(img, cv2.HOUGH_GRADIENT, dp=1, minDist=50,
+                           param1=100, param2=30, minRadius=20, maxRadius=100)
+if circles is None:
+    raise ValueError("No circles detected")
+x, y, r = np.uint16(np.around(circles[0, 0]))
+
+# Create mask
+yy, xx = np.indices(img.shape)
+mask = (xx - x)**2 + (yy - y)**2 <= r**2
+
+# Extract and unwrap phase
+wrapped = img.astype(float) / 255 * 2 * np.pi
+wrapped[~mask] = 0
+unwrapped = unwrap_phase(wrapped)
+unwrapped[~mask] = np.nan
+
+# Convert to OPD (optical path difference)
+wavelength = 632.8e-9  # meters, for HeNe laser
+opd = unwrapped * wavelength / (2 * np.pi)
+
+# Fit and remove tilt/piston (plane)
+def fit_plane(X, Y, Z):
+    G = np.c_[X.ravel(), Y.ravel(), np.ones_like(X.ravel())]
+    m, _, _, _ = np.linalg.lstsq(G, Z.ravel(), rcond=None)
+    return (G @ m).reshape(Z.shape)
+
+yyi, xxi = np.indices(opd.shape)
+plane = fit_plane(xxi, yyi, np.nan_to_num(opd))
+opd_flat = opd - plane
+
+# Zernike setup
+n_zernike = 15
+rz = RZern(10)  # Radial order should cover needed terms
+
+# Normalize to unit circle
+X = (xx - x) / r
+Y = (yy - y) / r
+rho = np.sqrt(X**2 + Y**2)
+theta = np.arctan2(Y, X)
+valid = (rho <= 1) & mask
+
+# Build Zernike design matrix
+basis = [rz.Zk(j, rho[valid], theta[valid]) for j in range(n_zernike)]
+B = np.stack(basis, axis=1)
+
+# Fit Zernike coefficients
+f = opd_flat[valid]
+coeffs, *_ = np.linalg.lstsq(B, f, rcond=None)
+
+# Reconstruct wavefront
+Z = np.zeros_like(opd_flat)
+Z[valid] = B @ coeffs
+
+# Plot the 3D surface of the reconstructed wavefront
+fig = plt.figure(figsize=(10, 7))
+ax = fig.add_subplot(111, projection='3d')
+
+# Create grid for plotting
+X_grid, Y_grid = np.meshgrid(np.arange(opd.shape[1]), np.arange(opd.shape[0]))
+
+# Plot surface
+ax.plot_surface(X_grid, Y_grid, Z, cmap='jet', edgecolor='none')
+
+# Labels and title
+ax.set_xlabel('X')
+ax.set_ylabel('Y')
+ax.set_zlabel('OPD (m)')
+ax.set_title('Reconstructed Wavefront (Zernike fit)')
+
+# Show plot
+plt.show()
